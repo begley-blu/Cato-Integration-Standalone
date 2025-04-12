@@ -1,0 +1,36 @@
+{
+  "ordered_fields": [
+    "rt",
+    "src",
+    "spt",
+    "dst",
+    "dpt",
+    "proto",
+    "in",
+    "out",
+    "rt",
+    "aid",
+    "sco",
+    "dco",
+    "suid"
+  ],
+  "field_mappings": {
+    "account_id": "aid",
+    "bytes_in": "in",
+    "bytes_out": "out",
+    "dest_country": "dst_country",
+    "dest_ip": "dst",
+    "dest_port": "dpt",
+    "protocol": "proto",
+    "src_country": "src_country",
+    "src_ip": "src",
+    "src_port": "spt",
+    "time": "rt",
+    "device_name": "client_name",
+    "src_site_name": "inzone",
+    "dest_site_name": "outzone",
+    "ad_name": "suid",
+    "ip_protocol": "tunnel_protocol",
+    "action": "action_details"
+  }
+}
