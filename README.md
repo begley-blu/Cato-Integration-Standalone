@@ -18,7 +18,7 @@
 
 I'll update the configuration parameters section to match the environment variables used in the code and remove the Parameter column as requested.
 
-```markdown
+
 | Environment Variable | Default Value | Description |
 |-----------|---------------|-------------|
 | CATO_API_URL | https://api.catonetworks.com/api/v1/graphql2 | Cato Networks API URL |
