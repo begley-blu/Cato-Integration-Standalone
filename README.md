@@ -16,22 +16,25 @@
 
 ## Configuration Parameters
 
-| Parameter | Default Value | Description |
+I'll update the configuration parameters section to match the environment variables used in the code and remove the Parameter column as requested.
+
+```markdown
+| Environment Variable | Default Value | Description |
 |-----------|---------------|-------------|
-| url | https://api.catonetworks.com/api/v1/graphql2 | Cato Networks API URL |
-| token | "" | Cato Networks API Token |
-| account | "" | Cato Networks Account ID |
-| syslog-proto | tcp | Syslog protocol (udp/tcp) |
-| syslog-server | localhost | Syslog server address |
-| syslog-port | 514 | Syslog server port |
-| cef-vendor | Check Point | CEF vendor field |
-| cef-product | Cato Networks SASE Platform | CEF product field |
-| cef-version | 1.0 | CEF version field |
-| log-level | info | Log level (debug, info, warn, error) |
-| interval | 10 | Event fetch interval in seconds |
-| marker-file | last_marker.txt | File to store the last event marker |
-| field-map | field_map.json | JSON file with field mapping configuration |
-| max-msg-size | 8096 | Maximum size of a syslog message |
+| CATO_API_URL | https://api.catonetworks.com/api/v1/graphql2 | Cato Networks API URL |
+| CATO_API_TOKEN | "" | Cato Networks API Token |
+| CATO_ACCOUNT_ID | "" | Cato Networks Account ID |
+| SYSLOG_PROTOCOL | tcp | Syslog protocol (udp/tcp) |
+| SYSLOG_SERVER | localhost | Syslog server address |
+| SYSLOG_PORT | 514 | Syslog server port |
+| CEF_VENDOR | Check Point | CEF vendor field |
+| CEF_PRODUCT | Cato Networks SASE Platform | CEF product field |
+| CEF_VERSION | 1.0 | CEF version field |
+| LOG_LEVEL | info | Log level (debug, info, warn, error) |
+| FETCH_INTERVAL | 10 | Event fetch interval in seconds |
+| MARKER_FILE | last_marker.txt | File to store the last event marker |
+| FIELD_MAP_FILE | field_map.json | JSON file with field mapping configuration |
+| MAX_MSG_SIZE | 8096 | Maximum size of a syslog message |
 
 You can either reference these from the .env file `EnvironmentFile` reference in the systemd unit file or directly via `ENVIRONMENT=`. The API Key should never be stored within the systemd unit file and should be locked down to the service run-as user or root via `chmod 0600`
 
