@@ -35,6 +35,9 @@ I'll update the configuration parameters section to match the environment variab
 | MARKER_FILE | last_marker.txt | File to store the last event marker |
 | FIELD_MAP_FILE | field_map.json | JSON file with field mapping configuration |
 | MAX_MSG_SIZE | 8096 | Maximum size of a syslog message |
+| VERBOSE | false | Enable verbose output |
+| USE_EVENT_IP | false | Use IP from event data as syslog source address |
+| CUSTOM_SOURCE_IP | "" | Custom source IP for syslog source address (host spoofing) |
 
 You can either reference these from the .env file `EnvironmentFile` reference in the systemd unit file or directly via `ENVIRONMENT=`. The API Key should never be stored within the systemd unit file and should be locked down to the service run-as user or root via `chmod 0600`
 
