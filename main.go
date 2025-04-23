@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"strings"
 	"syscall"
@@ -34,6 +35,9 @@ type Configuration struct {
 	MarkerFile     string // Path to the file storing the last marker
 	FieldMapFile   string // Path to a JSON file containing field mappings
 	MaxMsgSize     int    // Maximum size of a syslog message
+	Verbose        bool   // Verbose output for debugging
+	UseEventIP     bool   // Whether to use IPs from event data as source
+	CustomSourceIP string // Custom source IP to use if UseEventIP is false
 }
 
 // FieldMapping represents how fields should be mapped and ordered
@@ -186,6 +190,9 @@ func loadConfig() Configuration {
 	markerFile := flag.String("marker-file", getEnvOrDefault("MARKER_FILE", "last_marker.txt"), "File to store the last event marker")
 	fieldMapFile := flag.String("field-map", getEnvOrDefault("FIELD_MAP_FILE", "field_map.json"), "JSON file with field mapping configuration")
 	maxMsgSize := flag.Int("max-msg-size", getEnvOrIntDefault("MAX_MSG_SIZE", 8096), "Maximum size of a syslog message")
+	verbose := flag.Bool("verbose", getEnvOrBoolDefault("VERBOSE", false), "Enable verbose output")
+	useEventIP := flag.Bool("use-event-ip", getEnvOrBoolDefault("USE_EVENT_IP", false), "Use IP from event data as source")
+	customSourceIP := flag.String("source-ip", getEnvOrDefault("CUSTOM_SOURCE_IP", ""), "Custom source IP for syslog messages")
 
 	flag.Parse()
 
@@ -213,6 +220,9 @@ func loadConfig() Configuration {
 		FieldMapFile:   *fieldMapFile,
 		MaxMsgSize:     *maxMsgSize,
 		LastMarker:     "", // Start with empty marker, will be loaded from file
+		Verbose:        *verbose,
+		UseEventIP:     *useEventIP,
+		CustomSourceIP: *customSourceIP,
 	}
 
 	// Load the last marker from file if it exists
@@ -320,6 +330,8 @@ func loadMarkerFromFile(filename string) string {
 	if err != nil {
 		if !os.IsNotExist(err) {
 			log.Printf("Warning: Error reading marker file: %v", err)
+		} else {
+			log.Printf("Marker file %s does not exist, will create it on first run", filename)
 		}
 		return ""
 	}
@@ -328,6 +340,14 @@ func loadMarkerFromFile(filename string) string {
 
 // saveMarkerToFile saves the current marker to a file
 func saveMarkerToFile(filename string, marker string) error {
+	// Create the directory if it doesn't exist
+	dir := filepath.Dir(filename)
+	if dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("failed to create directory for marker file: %w", err)
+		}
+	}
+
 	return ioutil.WriteFile(filename, []byte(marker), 0644)
 }
 
@@ -391,6 +411,10 @@ func fetchEvents(config Configuration) ([]map[string]string, string, error) {
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", config.CatoAPIToken))
 
+	if config.Verbose {
+		log.Printf("Sending request to %s with payload: %s", config.CatoAPIURL, string(reqBody))
+	}
+
 	// Send the request
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(httpReq)
@@ -398,6 +422,8 @@ func fetchEvents(config Configuration) ([]map[string]string, string, error) {
 		return nil, "", fmt.Errorf("error sending request: %w", err)
 	}
 	defer resp.Body.Close()
+	// Log the response status code
+	log.Printf("API response status: %s (%d)", resp.Status, resp.StatusCode)
 
 	// Read the response
 	body, err := ioutil.ReadAll(resp.Body)
@@ -419,6 +445,20 @@ func fetchEvents(config Configuration) ([]map[string]string, string, error) {
 	// Check for GraphQL errors
 	if len(response.Errors) > 0 {
 		return nil, "", fmt.Errorf("GraphQL error: %s", response.Errors[0].Message)
+	}
+
+	// Log response details
+	log.Printf("API response: Marker: %s, FetchedCount: %d",
+		response.Data.EventsFeed.Marker,
+		response.Data.EventsFeed.FetchedCount)
+
+	// Log account details
+	for _, account := range response.Data.EventsFeed.Accounts {
+		if account.ErrorString != "" {
+			log.Printf("Error for account %s: %s", account.ID, account.ErrorString)
+		} else {
+			log.Printf("Account %s: %d records", account.ID, len(account.Records))
+		}
 	}
 
 	// Extract all records from all accounts
@@ -444,22 +484,41 @@ func forwardEvents(events []map[string]string, config *Configuration, fieldMappi
 
 	// Process each event
 	for _, fieldsMap := range events {
-		// Extract the client_ip if present - this will be our "source" IP
-		sourceIP := getMapValue(fieldsMap, "client_ip", "")
-		if sourceIP == "" {
-			// Try other potential source IP fields if client_ip is not present
-			sourceIP = getMapValue(fieldsMap, "src_ip", "")
+		// Determine source IP based on configuration
+		var sourceIP string
+
+		if config.UseEventIP {
+			// Extract the client_ip if present - this will be our "source" IP
+			sourceIP = getMapValue(fieldsMap, "client_ip", "")
 			if sourceIP == "" {
-				sourceIP = getMapValue(fieldsMap, "src_isp_ip", "")
+				// Try other potential source IP fields if client_ip is not present
+				sourceIP = getMapValue(fieldsMap, "src_ip", "")
 				if sourceIP == "" {
-					sourceIP = getMapValue(fieldsMap, "host_ip", "")
+					sourceIP = getMapValue(fieldsMap, "src_isp_ip", "")
+					if sourceIP == "" {
+						sourceIP = getMapValue(fieldsMap, "host_ip", "")
+					}
 				}
 			}
-		}
 
-		// If no source IP found, use a default
-		if sourceIP == "" {
-			sourceIP = "unknown-host"
+			// If no source IP found in the event, use a default
+			if sourceIP == "" {
+				sourceIP = "unknown-host"
+			}
+		} else if config.CustomSourceIP != "" {
+			// Use the configured custom source IP
+			sourceIP = config.CustomSourceIP
+		} else {
+			// Default to the system hostname if neither option is configured
+			hostname, err := os.Hostname()
+			if err != nil {
+				sourceIP = "unknown-host"
+				if config.LogLevel == "debug" {
+					log.Printf("Could not determine hostname: %v, using 'unknown-host'", err)
+				}
+			} else {
+				sourceIP = hostname
+			}
 		}
 
 		// Format the event as CEF
@@ -502,10 +561,25 @@ func forwardEvents(events []map[string]string, config *Configuration, fieldMappi
 // processEvents fetches and processes events from the Cato API
 func processEvents(config *Configuration, fieldMapping FieldMapping, syslogWriter *SyslogWriter) {
 	// Fetch events from Cato API
+	log.Printf("Fetching events from API %s with account ID %s", config.CatoAPIURL, config.CatoAccountID)
 	events, newMarker, err := fetchEvents(*config)
 	if err != nil {
 		log.Printf("Error fetching events: %v", err)
 		return
+	}
+
+	log.Printf("API returned marker: %s", newMarker)
+
+	// Always update and save the marker, even if there are no events
+	if newMarker != "" && newMarker != config.LastMarker {
+		config.LastMarker = newMarker
+
+		// Save the marker to file
+		if err := saveMarkerToFile(config.MarkerFile, newMarker); err != nil {
+			log.Printf("Warning: Failed to save marker to file: %v", err)
+		} else if config.LogLevel == "debug" {
+			log.Printf("Saved marker to file: %s", config.MarkerFile)
+		}
 	}
 
 	if len(events) > 0 {
@@ -530,7 +604,12 @@ func processEvents(config *Configuration, fieldMapping FieldMapping, syslogWrite
 		} else {
 			log.Printf("Forwarded %d events to syslog server", forwarded)
 		}
+	} else {
+		log.Println("No events returned from API")
 
+		if config.LogLevel == "debug" {
+			log.Println("No new events found")
+		}
 		// Update the marker for the next fetch
 		config.LastMarker = newMarker
 
@@ -539,10 +618,6 @@ func processEvents(config *Configuration, fieldMapping FieldMapping, syslogWrite
 			log.Printf("Warning: Failed to save marker to file: %v", err)
 		} else if config.LogLevel == "debug" {
 			log.Printf("Saved marker to file: %s", config.MarkerFile)
-		}
-	} else {
-		if config.LogLevel == "debug" {
-			log.Println("No new events found")
 		}
 	}
 }
